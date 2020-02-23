@@ -6,13 +6,15 @@ from PIL import Image, ImageChops
 
 prior_image = None
 
+
 def image_entropy(img):
-    w,h = img.size
-    a = np.array(img.convert('RGB')).reshape((w*h,3))
-    h,e = np.histogramdd(a, bins=(16,)*3, range=((0,256),)*3)
-    prob = h/np.sum(h) # normalize
-    prob = prob[prob>0] # remove zeros
+    w, h = img.size
+    a = np.array(img.convert('RGB')).reshape((w*h, 3))
+    h, e = np.histogramdd(a, bins=(16,)*3, range=((0, 256),)*3)
+    prob = h/np.sum(h)  # normalize
+    prob = prob[prob > 0]  # remove zeros
     return -np.sum(prob*np.log2(prob))
+
 
 def detect_motion(camera):
     global prior_image
@@ -34,6 +36,7 @@ def detect_motion(camera):
         prior_image = current_image
         return entropy >= 2
 
+
 def write_video(stream):
     with io.open('before.h264', 'wb') as output:
         for frame in stream.frames:
@@ -47,6 +50,7 @@ def write_video(stream):
             output.write(buf)
     stream.seek(0)
     stream.truncate()
+
 
 with picamera.PiCamera() as camera:
     camera.resolution = (1280, 720)
