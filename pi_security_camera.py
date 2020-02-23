@@ -1,3 +1,4 @@
+import datetime
 import io
 import picamera
 import subprocess
@@ -7,7 +8,7 @@ from PIL import Image, ImageChops
 
 MOTION_DETECTION_INTERVAL = 1  # attempt to detect motion 1x/sec
 RECORD_INTERVAL = 10  # after motion is detected, record at least 10 seconds
-OUTPUT_DIRECTORY = 'images'
+OUTPUT_DIRECTORY = 'captures'
 
 
 prior_image = None
@@ -70,14 +71,17 @@ with picamera.PiCamera() as camera:
             camera.wait_recording(MOTION_DETECTION_INTERVAL)
 
             if detect_motion(camera):
-                camera.split_recording('after.h264')
+                print('Motion detected!')
+                filename = OUTPUT_DIRECTORY + '/' + datetime.datetime.now().strftime("capture-%Y-%m-%d@%H:%M:%S")
+
+                camera.split_recording(filename + '.h264')
 
                 write_video(stream)
 
                 while detect_motion(camera):
                     camera.wait_recording(RECORD_INTERVAL)
 
-                #  subprocess.call("ffmpeg -framerate 24 -i input.h264 -c copy output.mp4")
+                subprocess.call(f"ffmpeg -framerate 24 -i {filename}.h264 -c copy {filename}.mp4", shell=True)
                 print('Motion stopped!')
                 camera.split_recording(stream)
 
