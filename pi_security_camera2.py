@@ -9,6 +9,10 @@ import socketserver
 from threading import Condition
 from http import server
 
+
+SERVER_PORT = 8000
+
+
 PAGE="""\
 <html>
     <head>
@@ -16,9 +20,7 @@ PAGE="""\
     </head>
 
     <body>
-        <center><h1>Raspberry Pi - Surveillance Camera</h1></center>
-
-        <center><img src="stream.mjpg" width="640" height="480"></center>
+        <img src="stream.mjpg" width="640" height="480">
     </body>
 </html>
 """
@@ -86,10 +88,10 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
 with picamera.PiCamera(resolution='640x480', framerate=24) as camera:
     output = StreamingOutput()
     #Uncomment the next line to change your Pi's Camera rotation (in degrees)
-    #camera.rotation = 90
+    #  camera.rotation = 270
     camera.start_recording(output, format='mjpeg')
     try:
-        address = ('', 8000)
+        address = ('', SERVER_PORT)
         server = StreamingServer(address, StreamingHandler)
         server.serve_forever()
     finally:
