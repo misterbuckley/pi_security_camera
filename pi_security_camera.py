@@ -8,7 +8,7 @@
 import os
 import time
 import sys
-import thread
+import _thread
 import datetime
 import io
 import picamera
@@ -140,6 +140,6 @@ def delete_files_older_than(age_limit):
 
 if __name__ == '__main__':
     # TODO make this run on another thread
-    thread.start_new_thread(delete_files_older_than, (KEEP_VIDEOS_FOR))
+    _thread.start_new_thread(delete_files_older_than, (KEEP_VIDEOS_FOR,))
 
-    thread.start_new_thread(main, ())
+    _thread.start_new_thread(main, ())
