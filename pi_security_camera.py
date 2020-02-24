@@ -5,6 +5,10 @@
 # - find a way to only care about motion on part of the video, a la ring
 
 
+import os
+import time
+import sys
+import thread
 import datetime
 import io
 import picamera
@@ -27,8 +31,11 @@ RECORD_DURATION = 5
 OUTPUT_DIRECTORY = 'captures'
 OUTPUT_FILENAME_FORMAT = "capture-%Y-%m-%d@%H:%M:%S"
 
+# time to keep videos for in seconds (default: 60 * 60 * 24 * 7 = 1 week)
+KEEP_VIDEOS_FOR = 60 * 60 * 24 * 7
+
 # 0 = mute, 1 = verbose, 2 = very verbose
-DEBUG_MODE = 1
+DEBUG_MODE = 2
 
 # --------------------------------------------------
 
@@ -113,5 +120,26 @@ def detect_motion(camera):
         return entropy >= 2
 
 
+def delete_files_older_than(age_limit):
+    while True:
+        if DEBUG_MODE >= 2: print("Checking for old files")
+
+        path = OUTPUT_DIRECTORY
+        now = time.time()
+
+        for f in os.listdir(path):
+            f = os.path.join(path, f)
+
+            if os.path.isfile(f) and os.stat(f).st_mtime < now - age_limit:
+                if DEBUG_MODE >= 2: print(f"Old file found: {f}")
+
+                os.remove(f)
+
+        time.sleep(10)
+
+
 if __name__ == '__main__':
-    main()
+    # TODO make this run on another thread
+    thread.start_new_thread(delete_files_older_than, (KEEP_VIDEOS_FOR))
+
+    thread.start_new_thread(main, ())
