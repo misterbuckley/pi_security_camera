@@ -13,17 +13,18 @@ from http import server
 SERVER_PORT = 8000
 
 
-PAGE="""\
+PAGE = """\
 <html>
     <head>
         <title>Raspberry Pi - Surveillance Camera</title>
     </head>
 
-    <body>
+    <body style="margin: 0;">
         <img src="stream.mjpg" width="640" height="480">
     </body>
 </html>
 """
+
 
 class StreamingOutput(object):
     def __init__(self):
@@ -34,8 +35,8 @@ class StreamingOutput(object):
     def write(self, buf):
         if buf.startswith(b'\xff\xd8'):
 
-            # New frame, copy the existing buffer's content and notify all
-            # clients it's available
+            #  New frame, copy the existing buffer's content and notify all
+            #  clients it's available
 
             self.buffer.truncate()
 
@@ -45,6 +46,7 @@ class StreamingOutput(object):
 
             self.buffer.seek(0)
         return self.buffer.write(buf)
+
 
 class StreamingHandler(server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -66,7 +68,8 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             self.send_header('Age', 0)
             self.send_header('Cache-Control', 'no-cache, private')
             self.send_header('Pragma', 'no-cache')
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
+            self.send_header('Content-Type',
+                             'multipart/x-mixed-replace; boundary=FRAME')
             self.end_headers()
 
             try:
@@ -91,14 +94,16 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             self.send_error(404)
             self.end_headers()
 
+
 class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+
 with picamera.PiCamera(resolution='640x480', framerate=24) as camera:
     output = StreamingOutput()
 
-    #Uncomment the next line to change your Pi's Camera rotation (in degrees)
+    #  Uncomment the next line to change your Pi's Camera rotation (in degrees)
     #  camera.rotation = 270
 
     camera.start_recording(output, format='mjpeg')

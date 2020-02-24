@@ -1,3 +1,7 @@
+# TODO
+# - find a better way to detect motion
+
+
 import datetime
 import io
 import picamera
@@ -6,12 +10,54 @@ import numpy as np
 from PIL import Image, ImageChops
 
 
-MOTION_DETECTION_INTERVAL = 1  # attempt to detect motion 1x/sec
-RECORD_INTERVAL = 10  # after motion is detected, record at least 10 seconds
+# -------------------- SETTINGS --------------------
+
+VIDEO_RESOLUTION = '640x480'
+VIDEO_FRAMERATE = 24
+
+# attempt to detect motion every this many seconds
+MOTION_DETECTION_INTERVAL = 1
+
+# record for at least this many seconds after first detecting motion
+RECORD_DURATION = 5
+
 OUTPUT_DIRECTORY = 'captures'
+OUTPUT_FILENAME_FORMAT = "capture-%Y-%m-%d@%H:%M:%S"
+
+# --------------------------------------------------
 
 
-prior_image = None
+def main():
+    with picamera.PiCamera(resolution=VIDEO_RESOLUTION,
+                           framerate=VIDEO_FRAMERATE) as camera:
+
+        stream = picamera.PiCameraCircularIO(camera, seconds=10)
+
+        camera.start_recording(stream, format='h264')
+
+        try:
+            while True:
+                camera.wait_recording(MOTION_DETECTION_INTERVAL)
+
+                if detect_motion(camera):
+                    now = datetime.datetime.now()
+                    formatted = now.strftime(OUTPUT_FILENAME_FORMAT)
+                    output_filename = f"{OUTPUT_DIRECTORY}/{formatted}"
+
+                    camera.split_recording(f"{output_filename}.h264")
+
+                    while detect_motion(camera):
+                        camera.wait_recording(RECORD_DURATION)
+
+                    camera.split_recording(stream)
+
+                    # convert the h264 output file to mp4 and then remove the h264
+                    subprocess.call(f"ffmpeg -framerate 24 -i {output_filename}.h264 -c copy {output_filename}.mp4",
+                                    shell=True)
+                    subprocess.call(f"rm {output_filename}.h264", shell=True)
+
+        finally:
+            camera.stop_recording()
 
 
 def image_entropy(img):
@@ -44,47 +90,5 @@ def detect_motion(camera):
         return entropy >= 2
 
 
-def write_video(stream):
-    with io.open('before.h264', 'wb') as output:
-        for frame in stream.frames:
-            if frame.frame_type == picamera.PiVideoFrameType.sps_header:
-                stream.seek(frame.position)
-                break
-        while True:
-            buf = stream.read1()
-            if not buf:
-                break
-            output.write(buf)
-
-    stream.seek(0)
-    stream.truncate()
-
-
-with picamera.PiCamera() as camera:
-    camera.resolution = (1280, 720)
-    stream = picamera.PiCameraCircularIO(camera, seconds=10)
-
-    camera.start_recording(stream, format='h264')
-
-    try:
-        while True:
-            camera.wait_recording(MOTION_DETECTION_INTERVAL)
-
-            if detect_motion(camera):
-                print('Motion detected!')
-                filename = OUTPUT_DIRECTORY + '/' + datetime.datetime.now().strftime("capture-%Y-%m-%d@%H:%M:%S")
-
-                camera.split_recording(filename + '.h264')
-
-                write_video(stream)
-
-                while detect_motion(camera):
-                    camera.wait_recording(RECORD_INTERVAL)
-
-                subprocess.call(f"ffmpeg -framerate 24 -i {filename}.h264 -c copy {filename}.mp4", shell=True)
-                print('Motion stopped!')
-                camera.split_recording(stream)
-
-    finally:
-        camera.stop_recording()
-
+if __name__ == '__main__':
+    main()
