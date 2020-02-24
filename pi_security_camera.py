@@ -1,5 +1,8 @@
 # TODO
 # - find a better way to detect motion
+# - open streaming server when motion is detected
+# - alert users when motion is detected just like a ring does
+# - find a way to only care about motion on part of the video, a la ring
 
 
 import datetime
