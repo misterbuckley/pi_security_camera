@@ -27,7 +27,13 @@ RECORD_DURATION = 5
 OUTPUT_DIRECTORY = 'captures'
 OUTPUT_FILENAME_FORMAT = "capture-%Y-%m-%d@%H:%M:%S"
 
+# 0 = mute, 1 = verbose, 2 = very verbose
+DEBUG_MODE = 1
+
 # --------------------------------------------------
+
+
+prior_image = None
 
 
 def main():
@@ -36,6 +42,8 @@ def main():
 
         stream = picamera.PiCameraCircularIO(camera, seconds=10)
 
+        if DEBUG_MODE >= 1: print("Start recording")
+
         camera.start_recording(stream, format='h264')
 
         try:
@@ -43,6 +51,8 @@ def main():
                 camera.wait_recording(MOTION_DETECTION_INTERVAL)
 
                 if detect_motion(camera):
+                    if DEBUG_MODE >= 1: print("Motion detected!")
+
                     now = datetime.datetime.now()
                     formatted = now.strftime(OUTPUT_FILENAME_FORMAT)
                     output_filename = f"{OUTPUT_DIRECTORY}/{formatted}"
@@ -50,7 +60,11 @@ def main():
                     camera.split_recording(f"{output_filename}.h264")
 
                     while detect_motion(camera):
+                        if DEBUG_MODE >= 1: print("Motion detected, recording 5 seconds")
+
                         camera.wait_recording(RECORD_DURATION)
+
+                    if DEBUG_MODE >= 1: print("Motion stopped, saving to file {output_filename}.mp4")
 
                     camera.split_recording(stream)
 
@@ -60,6 +74,8 @@ def main():
                     subprocess.call(f"rm {output_filename}.h264", shell=True)
 
         finally:
+            if DEBUG_MODE >= 1: print("Stop recording")
+
             camera.stop_recording()
 
 
@@ -73,6 +89,8 @@ def image_entropy(img):
 
 
 def detect_motion(camera):
+    if DEBUG_MODE >= 1: print("Looking for motion")
+
     global prior_image
     stream = io.BytesIO()
 
@@ -82,12 +100,14 @@ def detect_motion(camera):
     if prior_image is None:
         prior_image = Image.open(stream)
         return False
+
     else:
         current_image = Image.open(stream)
 
         diff = ImageChops.difference(prior_image, current_image)
         entropy = image_entropy(diff)
-        print("entropy: " + str(entropy))
+
+        if DEBUG_MODE >= 2: print("Image entropy: " + str(entropy))
 
         prior_image = current_image
         return entropy >= 2
