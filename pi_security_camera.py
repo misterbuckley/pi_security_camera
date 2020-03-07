@@ -19,11 +19,15 @@ from PIL import Image, ImageChops
 
 # -------------------- SETTINGS --------------------
 
-VIDEO_RESOLUTION = '640x480'
-VIDEO_FRAMERATE = 24
+# default resolution and framerate
+DEFAULT_RESOLUTION = '640x480'
+DEFAULT_FRAMERATE = 24
 
 # attempt to detect motion every this many seconds
 MOTION_DETECTION_INTERVAL = 1
+
+# switch to this resolution when motion is detected
+RECORD_RESOLUTION
 
 # record for at least this many seconds after first detecting motion
 RECORD_DURATION = 5
@@ -44,8 +48,8 @@ prior_image = None
 
 
 def main():
-    with picamera.PiCamera(resolution=VIDEO_RESOLUTION,
-                           framerate=VIDEO_FRAMERATE) as camera:
+    with picamera.PiCamera(resolution=DEFAULT_RESOLUTION,
+                           framerate=DEFAULT_FRAMERATE) as camera:
 
         stream = picamera.PiCameraCircularIO(camera, seconds=10)
 
@@ -64,15 +68,17 @@ def main():
                     formatted = now.strftime(OUTPUT_FILENAME_FORMAT)
                     output_filename = f"{OUTPUT_DIRECTORY}/{formatted}"
 
+                    camera.resolution = RECORD_RESOLUTION
                     camera.split_recording(f"{output_filename}.h264")
 
                     while detect_motion(camera):
-                        if DEBUG_MODE >= 1: print("Motion detected, recording 5 seconds")
+                        if DEBUG_MODE >= 1: print("Motion detected, recording " + str(RECORD_DURATION) + " seconds")
 
                         camera.wait_recording(RECORD_DURATION)
 
                     if DEBUG_MODE >= 1: print("Motion stopped, saving to file {output_filename}.mp4")
 
+                    camera.resolution = DEFAULT_RESOLUTION
                     camera.split_recording(stream)
 
                     # convert the h264 output file to mp4 and then remove the h264
