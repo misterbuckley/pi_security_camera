@@ -3,12 +3,14 @@
 # - open streaming server when motion is detected
 # - alert users when motion is detected just like a ring does
 # - find a way to only care about motion on part of the video, a la ring
+# - continuously upload captures to server
+# - continuously delete captures that have been uploaded to server
 
 
 import os
 import time
 import sys
-import _thread
+#  import _thread
 import datetime
 import io
 import picamera
@@ -27,7 +29,7 @@ DEFAULT_FRAMERATE = 24
 MOTION_DETECTION_INTERVAL = 1
 
 # switch to this resolution when motion is detected
-RECORD_RESOLUTION
+RECORD_RESOLUTION = '1920x1080'
 
 # record for at least this many seconds after first detecting motion
 RECORD_DURATION = 5
@@ -68,8 +70,10 @@ def main():
                     formatted = now.strftime(OUTPUT_FILENAME_FORMAT)
                     output_filename = f"{OUTPUT_DIRECTORY}/{formatted}"
 
+                    camera.stop_recording()
                     camera.resolution = RECORD_RESOLUTION
-                    camera.split_recording(f"{output_filename}.h264")
+                    #  camera.split_recording(f"{output_filename}.h264")
+                    camera.start_recording(f"{output_filename}.h264", format='h264')
 
                     while detect_motion(camera):
                         if DEBUG_MODE >= 1: print("Motion detected, recording " + str(RECORD_DURATION) + " seconds")
@@ -78,8 +82,10 @@ def main():
 
                     if DEBUG_MODE >= 1: print("Motion stopped, saving to file {output_filename}.mp4")
 
-                    camera.resolution = DEFAULT_RESOLUTION
-                    camera.split_recording(stream)
+                    camera.stop_recording()
+                    camera.resolution = RECORD_RESOLUTION
+                    #  camera.split_recording(stream)
+                    camera.start_recording(stream, format='h264')
 
                     # convert the h264 output file to mp4 and then remove the h264
                     subprocess.call(f"ffmpeg -framerate 24 -i {output_filename}.h264 -c copy {output_filename}.mp4",
@@ -145,7 +151,8 @@ def delete_files_older_than(age_limit):
 
 
 if __name__ == '__main__':
-    # TODO make this run on another thread
-    _thread.start_new_thread(delete_files_older_than, (KEEP_VIDEOS_FOR,))
+    # TODO threads
+    #  _thread.start_new_thread(delete_files_older_than, (KEEP_VIDEOS_FOR,))
+    #  _thread.start_new_thread(main, ())
 
-    _thread.start_new_thread(main, ())
+    main()
