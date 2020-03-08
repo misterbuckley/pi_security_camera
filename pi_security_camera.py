@@ -5,6 +5,10 @@
 # - find a way to only care about motion on part of the video, a la ring
 # - continuously upload captures to server
 # - continuously delete captures that have been uploaded to server
+# - log output to file
+# - threads
+# - read in settings from an easily configured file at OS root level
+# - create OUTPUT_FILE_LOCATION and LOG_FILE_LOCATION directories if not present
 
 
 import os
@@ -21,27 +25,16 @@ from PIL import Image, ImageChops
 
 # -------------------- SETTINGS --------------------
 
-# default resolution and framerate
-DEFAULT_RESOLUTION = '640x480'
+DEFAULT_RESOLUTION = "640x480"
 DEFAULT_FRAMERATE = 24
-
-# attempt to detect motion every this many seconds
-MOTION_DETECTION_INTERVAL = 1
-
-# switch to this resolution when motion is detected
-RECORD_RESOLUTION = '1920x1080'
-
-# record for at least this many seconds after first detecting motion
-RECORD_DURATION = 5
-
-OUTPUT_DIRECTORY = 'captures'
-OUTPUT_FILENAME_FORMAT = "capture-%Y-%m-%d@%H:%M:%S"
-
-# time to keep videos for in seconds (default: 60 * 60 * 24 * 7 = 1 week)
-KEEP_VIDEOS_FOR = 60 * 60 * 24 * 7
-
-# 0 = mute, 1 = verbose, 2 = very verbose
-DEBUG_MODE = 2
+MOTION_DETECTION_INTERVAL = 1                        # attempt to detect motion every this many seconds
+RECORD_RESOLUTION = "1920x1080"                      # switch to this resolution when motion is detected
+RECORD_DURATION = 5                                  # record for at least this many seconds after first detecting motion
+KEEP_VIDEOS_FOR = 60 * 60 * 24 * 7                   # time to keep videos for in seconds (default: 61 * 60 * 24 * 7 = 1 week)
+OUTPUT_FILE_LOCATION = "captures"                    # save files to this directory
+OUTPUT_FILE_FORMAT = "capture-%Y-%m-%d@%H:%M:%S"     # format for filename output
+LOG_FILE_LOCATION = "logs"                           # where to save log files
+LOG_FILE_FORMAT = "log"                              # format for log files
 
 # --------------------------------------------------
 
@@ -55,52 +48,56 @@ def main():
 
         stream = picamera.PiCameraCircularIO(camera, seconds=10)
 
-        if DEBUG_MODE >= 1: print("Start recording")
+        log_message("start recording")
+        log_message(f"resolution: {DEFAULT_RESOLUTION}")
+        log_message(f"framerate: {DEFAULT_FRAMERATE}")
 
-        camera.start_recording(stream, format='h264')
+        camera.start_recording(stream, format="h264")
 
         try:
             while True:
                 camera.wait_recording(MOTION_DETECTION_INTERVAL)
 
                 if detect_motion(camera):
-                    if DEBUG_MODE >= 1: print("Motion detected!")
-
                     now = datetime.datetime.now()
-                    formatted = now.strftime(OUTPUT_FILENAME_FORMAT)
-                    output_filename = f"{OUTPUT_DIRECTORY}/{formatted}"
+                    formatted_time = now.strftime(OUTPUT_FILE_FORMAT)
+                    output_filename = f"{OUTPUT_FILE_LOCATION}/{formatted_time}"
 
                     camera.stop_recording()
+                    # TODO move this stuff to a change_resolution() method
+                    log_message(f"setting resolution to {RECORD_RESOLUTION}")
                     camera.resolution = RECORD_RESOLUTION
-                    #  camera.split_recording(f"{output_filename}.h264")
-                    camera.start_recording(f"{output_filename}.h264", format='h264')
+                    camera.start_recording(f"{output_filename}.h264", format="h264")
 
                     while detect_motion(camera):
-                        if DEBUG_MODE >= 1: print("Motion detected, recording " + str(RECORD_DURATION) + " seconds")
-
+                        log_message(f"recording for {RECORD_DURATION} seconds")
                         camera.wait_recording(RECORD_DURATION)
 
-                    if DEBUG_MODE >= 1: print("Motion stopped, saving to file {output_filename}.mp4")
+                    log_message(f"Motion stopped, saving to file {output_filename}.mp4")
 
                     camera.stop_recording()
-                    camera.resolution = RECORD_RESOLUTION
-                    #  camera.split_recording(stream)
-                    camera.start_recording(stream, format='h264')
+                    # TODO move this stuff to a change_resolution() method
+                    log_message(f"setting resolution to {DEFAULT_RESOLUTION}")
+                    camera.resolution = DEFAULT_RESOLUTION
+                    camera.start_recording(stream, format="h264")
 
+                    log_message("converting .h264 raw output file to .mp4")
                     # convert the h264 output file to mp4 and then remove the h264
                     subprocess.call(f"ffmpeg -framerate 24 -i {output_filename}.h264 -c copy {output_filename}.mp4",
                                     shell=True)
                     subprocess.call(f"rm {output_filename}.h264", shell=True)
 
+                delete_files_older_than(KEEP_VIDEOS_FOR)
+
         finally:
-            if DEBUG_MODE >= 1: print("Stop recording")
+            log_message("stop recording")
 
             camera.stop_recording()
 
 
 def image_entropy(img):
     w, h = img.size
-    a = np.array(img.convert('RGB')).reshape((w*h, 3))
+    a = np.array(img.convert("RGB")).reshape((w*h, 3))
     h, e = np.histogramdd(a, bins=(16,)*3, range=((0, 256),)*3)
     prob = h/np.sum(h)  # normalize
     prob = prob[prob > 0]  # remove zeros
@@ -108,15 +105,17 @@ def image_entropy(img):
 
 
 def detect_motion(camera):
-    if DEBUG_MODE >= 1: print("Looking for motion")
+    log_message("checking for motion")
 
     global prior_image
     stream = io.BytesIO()
 
-    camera.capture(stream, format='jpeg', use_video_port=True)
+    camera.capture(stream, format="jpeg", use_video_port=True)
     stream.seek(0)
 
     if prior_image is None:
+        log_message("no prior image, skipping diff check")
+
         prior_image = Image.open(stream)
         return False
 
@@ -126,33 +125,42 @@ def detect_motion(camera):
         diff = ImageChops.difference(prior_image, current_image)
         entropy = image_entropy(diff)
 
-        if DEBUG_MODE >= 2: print("Image entropy: " + str(entropy))
-
         prior_image = current_image
-        return entropy >= 2
+
+        log_message(f"entropy of diff: {entropy}")
+        was_motion_detected = entropy >= 2
+
+        if was_motion_detected: log_message("motion detected!")
+
+        return was_motion_detected
 
 
-def delete_files_older_than(age_limit):
-    while True:
-        if DEBUG_MODE >= 2: print("Checking for old files")
+def delete_files_older_than(age_limit=KEEP_VIDEOS_FOR):
+    log_message(f"checking for captures older than {KEEP_VIDEOS_FOR / 24 / 60 / 60} days")
 
-        path = OUTPUT_DIRECTORY
-        now = time.time()
+    path = OUTPUT_FILE_LOCATION
+    now = time.time()
 
-        for f in os.listdir(path):
-            f = os.path.join(path, f)
+    for f in os.listdir(path):
+        f = os.path.join(path, f)
 
-            if os.path.isfile(f) and os.stat(f).st_mtime < now - age_limit:
-                if DEBUG_MODE >= 2: print(f"Old file found: {f}")
+        if os.path.isfile(f) and os.stat(f).st_mtime < now - age_limit:
+            log_message(f"old file found, removing: {f}")
 
-                os.remove(f)
-
-        time.sleep(10)
+            os.remove(f)
 
 
-if __name__ == '__main__':
-    # TODO threads
-    #  _thread.start_new_thread(delete_files_older_than, (KEEP_VIDEOS_FOR,))
-    #  _thread.start_new_thread(main, ())
+def log_message(message):
+    log_filename = f"{LOG_FILE_LOCATION}/{LOG_FILE_FORMAT}"
 
+    with open(log_filename, "a") as log_file:
+        now = datetime.datetime.now()
+        formatted_time = now.strftime("%Y-%m-%d@%H:%M:%S")
+        log_message = f"{formatted_time} {message}"
+
+        print(log_message)
+        log_file.write(log_message + "\n")
+
+
+if __name__ == "__main__":
     main()
