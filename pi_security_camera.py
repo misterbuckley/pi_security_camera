@@ -7,8 +7,15 @@
 # - continuously delete captures that have been uploaded to server
 # - log output to file
 # - threads
+#   - check for and delete old captures on another thread
+#   - archive log files on another thread
+#   - convert .h264 ti .mp4 on another thread
 # - read in settings from an easily configured file at OS root level
 # - create OUTPUT_FILE_LOCATION and LOG_FILE_LOCATION directories if not present
+# - docstrings
+# - use original image to check for motion, else small (slow) movements will not trigger motion detect
+#   - reset original image against which differences are counted as "motion" every minute or 2
+# - use classes and shit and get rid of global variables
 
 
 import os
@@ -31,15 +38,19 @@ MOTION_DETECTION_INTERVAL = 1                        # attempt to detect motion 
 RECORD_RESOLUTION = "1920x1080"                      # switch to this resolution when motion is detected
 RECORD_DURATION = 5                                  # record for at least this many seconds after first detecting motion
 KEEP_VIDEOS_FOR = 60 * 60 * 24 * 7                   # time to keep videos for in seconds (default: 61 * 60 * 24 * 7 = 1 week)
+TIMESTAMP_FORMAT = "%Y-%m-%d@%H:%M:%S"               # format for time stamps, as used in output file names
 OUTPUT_FILE_LOCATION = "captures"                    # save files to this directory
-OUTPUT_FILE_FORMAT = "capture-%Y-%m-%d@%H:%M:%S"     # format for filename output
+OUTPUT_FILE_FORMAT = f"capture-{TIMESTAMP_FORMAT}"   # format for filename output
 LOG_FILE_LOCATION = "logs"                           # where to save log files
 LOG_FILE_FORMAT = "log"                              # format for log files
+LOG_FILE_SIZE_LIMIT = 1024 * 1024 * 512              # 512 MB max log file size
 
 # --------------------------------------------------
 
 
+update_prior_image_every = 60 # seconds
 prior_image = None
+prior_image_taken_at = None
 
 
 def main():
@@ -77,15 +88,15 @@ def main():
 
                     camera.stop_recording()
                     # TODO move this stuff to a change_resolution() method
-                    log_message(f"setting resolution to {DEFAULT_RESOLUTION}")
-                    camera.resolution = DEFAULT_RESOLUTION
-                    camera.start_recording(stream, format="h264")
-
                     log_message("converting .h264 raw output file to .mp4")
                     # convert the h264 output file to mp4 and then remove the h264
                     subprocess.call(f"ffmpeg -framerate 24 -i {output_filename}.h264 -c copy {output_filename}.mp4",
                                     shell=True)
                     subprocess.call(f"rm {output_filename}.h264", shell=True)
+
+                    log_message(f"setting resolution to {DEFAULT_RESOLUTION}")
+                    camera.resolution = DEFAULT_RESOLUTION
+                    camera.start_recording(stream, format="h264")
 
                 delete_files_older_than(KEEP_VIDEOS_FOR)
 
@@ -105,32 +116,40 @@ def image_entropy(img):
 
 
 def detect_motion(camera):
-    log_message("checking for motion")
-
     global prior_image
+    global prior_image_taken_at
+
     stream = io.BytesIO()
 
     camera.capture(stream, format="jpeg", use_video_port=True)
     stream.seek(0)
+    current_image = Image.open(stream)
+
+    now = time.time()
 
     if prior_image is None:
-        log_message("no prior image, skipping diff check")
+        log_message("no prior image, skipping motion check")
 
-        prior_image = Image.open(stream)
+        prior_image = current_image
+        prior_image_taken_at = now
+
         return False
 
     else:
-        current_image = Image.open(stream)
+        log_message("checking for motion")
 
         diff = ImageChops.difference(prior_image, current_image)
         entropy = image_entropy(diff)
-
-        prior_image = current_image
-
         log_message(f"entropy of diff: {entropy}")
-        was_motion_detected = entropy >= 2
 
+        was_motion_detected = entropy >= 2
         if was_motion_detected: log_message("motion detected!")
+
+        if now - prior_image_taken_at > update_prior_image_every:
+            log_message(f"it has been {update_prior_image_every} seconds, updating prior image")
+
+            prior_image = current_image
+            prior_image_taken_at = now
 
         return was_motion_detected
 
@@ -151,16 +170,30 @@ def delete_files_older_than(age_limit=KEEP_VIDEOS_FOR):
 
 
 def log_message(message):
+    now = datetime.datetime.now()
+    formatted_time = now.strftime(TIMESTAMP_FORMAT)
+    log_message = f"{formatted_time} {message}"
     log_filename = f"{LOG_FILE_LOCATION}/{LOG_FILE_FORMAT}"
 
-    with open(log_filename, "a") as log_file:
-        now = datetime.datetime.now()
-        formatted_time = now.strftime("%Y-%m-%d@%H:%M:%S")
-        log_message = f"{formatted_time} {message}"
+    print(log_message)
 
-        print(log_message)
+    log_file_size = os.path.getsize(log_filename)
+    if log_file_size > LOG_FILE_SIZE_LIMIT:
+        print("log file has reached size limit, archiving")
+        archive_log_file(log_filename)
+
+    with open(log_filename, "a+") as log_file:
         log_file.write(log_message + "\n")
 
 
+def archive_log_file(log_filename):
+    now = datetime.datetime.now()
+    formatted_time = now.strftime(TIMESTAMP_FORMAT)
+    os.rename(log_filename, f"{log_filename}-{formatted_time}.log")
+
+
 if __name__ == "__main__":
+    # TODO
+    # read_settings()
+
     main()
