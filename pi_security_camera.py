@@ -27,6 +27,8 @@ import io
 import picamera
 import subprocess
 import numpy as np
+import twilio
+import shutil
 from PIL import Image, ImageChops
 
 
@@ -100,6 +102,8 @@ def main():
 
                 delete_files_older_than(KEEP_VIDEOS_FOR)
 
+                send_text_if_disk_getting_full()
+
         finally:
             log_message("stop recording")
 
@@ -167,6 +171,15 @@ def delete_files_older_than(age_limit=KEEP_VIDEOS_FOR):
             log_message(f"old file found, removing: {f}")
 
             os.remove(f)
+
+
+def send_text_if_disk_getting_full():
+    total, used, free = shutil.disk_usage('/')
+
+    log_message(f"disk usage: {used} / {total}  free space: {free}")
+
+    if free <= 1024 * 1024 * 1024:  # <= 1 GB left
+        pass  # TODO send text message
 
 
 def log_message(message):
