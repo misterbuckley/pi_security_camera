@@ -21,14 +21,15 @@
 import os
 import time
 import sys
-#  import _thread
+import socket
 import datetime
 import io
 import picamera
 import subprocess
 import numpy as np
-import twilio
 import shutil
+import smtplib
+import ssl
 from PIL import Image, ImageChops
 
 
@@ -102,7 +103,7 @@ def main():
 
                 delete_files_older_than(KEEP_VIDEOS_FOR)
 
-                send_text_if_disk_getting_full()
+                notify_if_disk_getting_full()
 
         finally:
             log_message("stop recording")
@@ -173,13 +174,29 @@ def delete_files_older_than(age_limit=KEEP_VIDEOS_FOR):
             os.remove(f)
 
 
-def send_text_if_disk_getting_full():
+def notify_if_disk_getting_full():
     total, used, free = shutil.disk_usage('/')
 
-    log_message(f"disk usage: {used} / {total}  free space: {free}")
+    log_message(f"Disk usage: {used} / {total}  free space: {free}")
 
     if free <= 1024 * 1024 * 1024:  # <= 1 GB left
-        pass  # TODO send text message
+        context = ssl.create_default_context()
+        hostname = socket.gethostname()
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            sender_address = f"pi@{hostname}"
+            receiver_address = "iammikebuckley+securitycamera@gmail.com"
+            password = os.getenv('GMAIL_PASS')
+            server.login(receiver_address, password)
+
+            email_content = f"""
+            Subject: {hostname} is running out of space
+
+            Disk usage: {used / 1024 / 1024 / 1024} of {total / 1024 / 1024 / 1024} GB
+            Free space: {free / 1024 / 1024 / 1024}
+            """
+
+            server.sendmail(sender_address, receiver_address, email_content)
 
 
 def log_message(message):
